@@ -4,6 +4,8 @@ use crate::{
     task::{exit_current_and_run_next, suspend_current_and_run_next, TaskStatus},
     timer::get_time_us,
 };
+use crate::task::TASK_MANAGER;
+use crate::timer::{get_time_ms};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -51,7 +53,16 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
+pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info");
-    -1
+    let tcb = TASK_MANAGER.get_inner().get_current_task();
+    let ms = get_time_ms();
+    unsafe {
+        *ti = TaskInfo {
+            status: TaskStatus::Running,
+            syscall_times: tcb.syscall_times,
+            time: ms - tcb.start_time,
+        }
+    }
+    0
 }

@@ -7,7 +7,7 @@ pub struct TaskContext {
     /// Ret position after task switching
     ra: usize,
     /// Stack pointer
-    sp: usize,
+    pub sp: usize,
     /// s0-11 register, callee saved
     s: [usize; 12],
 }

@@ -9,19 +9,23 @@
 //! Be careful when you see `__switch` ASM function in `switch.S`. Control flow around this function
 //! might not be what you expect.
 
+use core::cell::RefMut;
+
+use lazy_static::*;
+
+pub use context::TaskContext;
+use switch::__switch;
+pub use task::{TaskControlBlock, TaskStatus};
+
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
+use crate::loader::{get_num_app, init_app_cx};
+use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
+
 mod context;
 mod switch;
 #[allow(clippy::module_inception)]
 mod task;
-
-use crate::config::MAX_APP_NUM;
-use crate::loader::{get_num_app, init_app_cx};
-use crate::sync::UPSafeCell;
-use lazy_static::*;
-use switch::__switch;
-pub use task::{TaskControlBlock, TaskStatus};
-
-pub use context::TaskContext;
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -47,6 +51,18 @@ pub struct TaskManagerInner {
     current_task: usize,
 }
 
+impl TaskManagerInner {
+    /// get the current task
+    pub fn get_current_task(&self) -> TaskControlBlock {
+        self.tasks[self.current_task].clone()
+    }
+
+    /// set the current task
+    pub fn set_current_task(&mut self, tcb: TaskControlBlock) {
+        self.tasks[self.current_task] = tcb
+    }
+}
+
 lazy_static! {
     /// Global variable: TASK_MANAGER
     pub static ref TASK_MANAGER: TaskManager = {
@@ -54,6 +70,8 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            syscall_times: [0; MAX_SYSCALL_NUM],
+            start_time: 0,
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -79,6 +97,9 @@ impl TaskManager {
     fn run_first_task(&self) -> ! {
         let mut inner = self.inner.exclusive_access();
         let task0 = &mut inner.tasks[0];
+        if task0.start_time  == 0 {
+            task0.start_time = get_time_ms();
+        }
         task0.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
         drop(inner);
@@ -88,6 +109,11 @@ impl TaskManager {
             __switch(&mut _unused as *mut TaskContext, next_task_cx_ptr);
         }
         panic!("unreachable in run_first_task!");
+    }
+
+    /// get inner
+    pub fn get_inner(&self) -> RefMut<TaskManagerInner> {
+        self.inner.exclusive_access()
     }
 
     /// Change the status of current `Running` task into `Ready`.
@@ -121,10 +147,18 @@ impl TaskManager {
         if let Some(next) = self.find_next_task() {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
+            if inner.tasks[next].start_time == 0 {
+                inner.tasks[next].start_time = get_time_ms();
+            }
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
+            // let sp = inner.tasks[next].task_cx.sp as *const u8;
+            // let sstatus = unsafe { sp.clone().byte_offset(32) };
+            // let sepc = unsafe { sp.clone().byte_offset(33) };
+            // let sscratch = unsafe { sp.clone().byte_offset(2) };
+            // unsafe { println!("task {}, sstatus: {}, spec: {}, sscratch: {}", next, *(sstatus as *const u16),  *(sepc as *const u16), *(sscratch as *const u16)) }
             drop(inner);
             // before this, we should drop local variables that must be dropped manually
             unsafe {

@@ -17,8 +17,8 @@ struct KernelStack {
 
 #[repr(align(4096))]
 #[derive(Copy, Clone)]
-struct UserStack {
-    data: [u8; USER_STACK_SIZE],
+pub(crate) struct UserStack {
+    pub data: [u8; USER_STACK_SIZE],
 }
 
 static KERNEL_STACK: [KernelStack; MAX_APP_NUM] = [KernelStack {
