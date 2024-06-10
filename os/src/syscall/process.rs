@@ -11,9 +11,11 @@ use crate::{
         suspend_current_and_run_next, TaskStatus,
     },
 };
+use crate::mm::page_table::dereferencing_struct;
+use crate::timer::{get_time_ms, get_time_us};
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TimeVal {
     pub sec: usize,
     pub usec: usize,
@@ -21,6 +23,7 @@ pub struct TimeVal {
 
 /// Task information
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct TaskInfo {
     /// Task status in it's life cycle
     status: TaskStatus,
@@ -117,23 +120,37 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
+    let us = get_time_us();
+    let tv = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+
+    dereferencing_struct(current_user_token(), ts as *const u8, tv);
+
     trace!(
         "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    let ms = get_time_ms();
+    let info = TaskInfo {
+        status: TaskStatus::Running,
+        syscall_times: inner.syscall_times,
+        time: ms - inner.start_time,
+    };
+    drop(inner);
+    dereferencing_struct(current_user_token(), ti as *const u8, info);
+    0
 }
 
 /// YOUR JOB: Implement mmap.
