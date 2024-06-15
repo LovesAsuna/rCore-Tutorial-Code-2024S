@@ -2,16 +2,17 @@
 use alloc::sync::Arc;
 
 use crate::{
-    config::MAX_SYSCALL_NUM,
+   config, config::MAX_SYSCALL_NUM,
     loader::get_app_data_by_name,
     mm::{translated_refmut, translated_str},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
         suspend_current_and_run_next, TaskStatus,
-    },
+    }
 };
 use crate::task::TaskControlBlock;
 use crate::mm::page_table::dereferencing_struct;
+use crate::mm::{MapPermission, PageTable, VirtAddr, VirtPageNum};
 use crate::timer::{get_time_ms, get_time_us};
 
 #[repr(C)]
@@ -154,22 +155,85 @@ pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
     0
 }
 
-/// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+// YOUR JOB: Implement mmap.
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
+    // start 没有按页对齐
+    if start & ((1 << config::PAGE_SIZE_BITS) - 1) != 0 {
+        return -1;
+    }
+    // port 其余位必须为0
+    if port & !0x7 != 0 {
+        return -1;
+    }
+    // port 为 0，无意义内存
+    if port & 0x7 == 0 {
+        return -1;
+    }
+    // 拿到当前应用的页表
+    let token = current_user_token();
+    let page_table = PageTable::from_token(token);
+    let mut current_page = VirtAddr::from(start).floor();
+    let end_page = VirtAddr::from(start + len).ceil();
+    while current_page.0 < end_page.0 {
+        if let Some(entry) = page_table.translate(current_page) {
+            if entry.is_valid() {
+                // 存在已经被映射的页
+                // println!("there is already mapped page {:?}", current_page);
+                return -1;
+            }
+        }
+        current_page = VirtPageNum(current_page.0 + 1);
+    }
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    let memory_set = &mut inner.memory_set;
+    // 分配内存
+    current_page = VirtAddr::from(start).floor();
+    if !memory_set.insert_framed_area(VirtAddr::from(current_page), VirtAddr::from(end_page), MapPermission::from_bits((port as u8) << 1).unwrap() | MapPermission::U) {
+        // 内存不足
+        // println!("memory is not enough");
+        return -1;
+    }
+    0
 }
 
-/// YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+// YOUR JOB: Implement munmap.
+pub fn sys_munmap(start: usize, len: usize) -> isize {
+    // start 没有按页对齐
+    if start & ((1 << config::PAGE_SIZE_BITS) - 1) != 0 {
+        return -1;
+    }
+    // 拿到当前应用的页表
+    let token = current_user_token();
+    let page_table = PageTable::from_token(token);
+    let mut current_page = VirtAddr::from(start).floor();
+    let end_page = VirtAddr::from(start + len).ceil();
+    // println!("start: {:?}, end: {:?}", current_page, end_page);
+    while current_page.0 < end_page.0 {
+        if let None = page_table.translate(current_page) {
+            // 存在未被映射的页
+            // println!("there is unmapped page {:?}", current_page);
+            return -1;
+        }
+        if let Some(entry) = page_table.translate(current_page)  {
+            if !entry.is_valid() {
+                // 存在无效的页
+                // println!("there is invalid page {:?}", current_page);
+                return -1;
+            }
+        }
+        current_page = VirtPageNum(current_page.0 + 1);
+    }
+
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    let memory_set = &mut inner.memory_set;
+    current_page = VirtAddr::from(start).floor();
+    if !memory_set.delete_framed_area(VirtAddr::from(current_page.clone()), VirtAddr::from(end_page.clone())) {
+        // println!("unmap failed");
+        return -1;
+    }
+    0
 }
 
 /// change data segment size
