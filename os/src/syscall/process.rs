@@ -13,6 +13,7 @@ use crate::{
 };
 use crate::mm::page_table::dereferencing_struct;
 use crate::mm::{MapPermission, PageTable, VirtAddr, VirtPageNum};
+use crate::task::TaskControlBlock;
 use crate::timer::{get_time_ms, get_time_us};
 
 #[repr(C)]
@@ -247,12 +248,23 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_spawn(path: *const u8) -> isize {
+    let path = translated_str(current_user_token(), path);
+    if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
+        let all_data = app_inode.read_all();
+        let tcb = Arc::new(TaskControlBlock::new(&all_data));
+        let task = current_task().unwrap();
+        let mut parent_inner = task.inner_exclusive_access();
+        parent_inner.children.push(tcb.clone());
+        drop(parent_inner);
+        let mut child_inner = tcb.inner_exclusive_access();
+        child_inner.parent = Some(Arc::downgrade(&task));
+        drop(child_inner);
+        add_task(tcb.clone());
+        tcb.pid.0 as isize
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: Set task priority.
