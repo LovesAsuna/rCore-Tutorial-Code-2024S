@@ -1,29 +1,43 @@
 //!Implementation of [`TaskManager`]
-use super::TaskControlBlock;
-use crate::sync::UPSafeCell;
-use alloc::collections::VecDeque;
+use alloc::collections::BinaryHeap;
 use alloc::sync::Arc;
+use core::cmp::Reverse;
+
 use lazy_static::*;
+
+use crate::sync::UPSafeCell;
+use crate::task::task::ComparableTCB;
+
+use super::TaskControlBlock;
+
 ///A array of `TaskControlBlock` that is thread-safe
 pub struct TaskManager {
-    ready_queue: VecDeque<Arc<TaskControlBlock>>,
+    ready_queue: BinaryHeap<Reverse<ComparableTCB>>,
 }
 
+const BIG_STRIDE: usize = 0xFFFF - 1;
 /// A simple FIFO scheduler.
 impl TaskManager {
     ///Creat an empty TaskManager
     pub fn new() -> Self {
         Self {
-            ready_queue: VecDeque::new(),
+            ready_queue: BinaryHeap::new(),
         }
     }
     /// Add process back to ready queue
     pub fn add(&mut self, task: Arc<TaskControlBlock>) {
-        self.ready_queue.push_back(task);
+        self.ready_queue.push(Reverse(ComparableTCB(task)));
     }
     /// Take a process out of the ready queue
     pub fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {
-        self.ready_queue.pop_front()
+        self.ready_queue.pop().map(|task| {
+            let task = task.0.0;
+            let mut tcb = task.inner_exclusive_access();
+            let pass = BIG_STRIDE / tcb.priority;
+            tcb.stride += pass;
+            drop(tcb);
+            task
+        })
     }
 }
 

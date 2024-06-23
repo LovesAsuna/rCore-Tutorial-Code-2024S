@@ -8,6 +8,7 @@ use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::cell::RefMut;
+use core::cmp::Ordering;
 
 /// Task control block structure
 ///
@@ -269,4 +270,32 @@ pub enum TaskStatus {
     Running,
     /// exited
     Zombie,
+}
+
+pub struct ComparableTCB(pub Arc<TaskControlBlock>);
+
+impl Eq for ComparableTCB {}
+
+impl PartialEq<Self> for ComparableTCB {
+    fn eq(&self, other: &Self) -> bool {
+        let tcb = self.0.inner.exclusive_access();
+        let other_tcb = other.0.inner.exclusive_access();
+        tcb.stride == other_tcb.stride
+    }
+}
+
+impl PartialOrd<Self> for ComparableTCB {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let tcb = self.0.inner.exclusive_access();
+        let other_tcb = other.0.inner.exclusive_access();
+        tcb.stride.partial_cmp(&other_tcb.stride)
+    }
+}
+
+impl Ord for ComparableTCB {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let tcb = self.0.inner.exclusive_access();
+        let other_tcb = other.0.inner.exclusive_access();
+        tcb.stride.cmp(&other_tcb.stride)
+    }
 }
