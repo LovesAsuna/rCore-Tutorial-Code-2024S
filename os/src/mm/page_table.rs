@@ -1,20 +1,30 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
 use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
+use crate::config::PAGE_SIZE;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
+use core::mem::size_of;
 
 bitflags! {
     /// page table entry flags
     pub struct PTEFlags: u8 {
+        /// V
         const V = 1 << 0;
+        /// R
         const R = 1 << 1;
+        /// W
         const W = 1 << 2;
+        /// X
         const X = 1 << 3;
+        /// U
         const U = 1 << 4;
+        /// G
         const G = 1 << 5;
+        /// A
         const A = 1 << 6;
+        /// D
         const D = 1 << 7;
     }
 }
@@ -179,6 +189,40 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
     v
 }
 
+pub fn dereferencing_struct<T: Clone>(token: usize, ptr: *const u8, v: T) {
+    // 当前任务的页表
+    let page_table = PageTable::from_token(token);
+    // 系统调用传入的用户空间虚拟地址
+    let va = VirtAddr::from(ptr as usize);
+    let size = size_of::<T>();
+    // 在两个虚拟页面之间
+    if va.page_offset() + size > PAGE_SIZE {
+        // 获取上半部分开始的物理地址
+        let vpn = va.floor();
+        let ppn = page_table.translate(vpn).unwrap().ppn();
+        // 写入上半部分
+        let ptr = PhysAddr::from(PhysAddr::from(ppn).0 + va.page_offset()).0 as *mut T;
+        unsafe {
+            *ptr = v.clone();
+        }
+        // 获下半部分结束的物理地址
+        let vpn = VirtAddr::from(ptr as usize + size).ceil();
+        let ppn = page_table.translate(vpn).unwrap().ppn();
+        // 从上一页开始写入下半部分
+        let ptr =
+            PhysAddr::from(PhysAddr::from(PhysPageNum(ppn.0 - 1)).0 + va.page_offset()).0 as *mut T;
+        unsafe {
+            *ptr = v;
+        }
+    } else {
+        let vpn = va.floor();
+        let ppn = page_table.translate(vpn).unwrap().ppn();
+        let ptr = PhysAddr::from(PhysAddr::from(ppn).0 + va.page_offset()).0 as *mut T;
+        unsafe {
+            *ptr = v;
+        }
+    }
+}
 /// Create String in kernel address space from u8 Array(end with 0) in other address space
 pub fn translated_str(token: usize, ptr: *const u8) -> String {
     let page_table = PageTable::from_token(token);

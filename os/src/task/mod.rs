@@ -29,6 +29,7 @@ use manager::fetch_task;
 use process::ProcessControlBlock;
 use switch::__switch;
 
+use crate::timer::get_time_ms;
 pub use context::TaskContext;
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle, IDLE_PID};
 pub use manager::{add_task, pid2process, remove_from_pid2process, remove_task, wakeup_task};
@@ -49,6 +50,9 @@ pub fn suspend_current_and_run_next() {
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
+    if task_inner.start_time  == 0 {
+        task_inner.start_time = get_time_ms();
+    }
     drop(task_inner);
     // ---- release current TCB
 

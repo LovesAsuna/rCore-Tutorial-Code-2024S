@@ -12,21 +12,27 @@
 //! was. For example, timer interrupts trigger task preemption, and syscalls go
 //! to [`syscall()`].
 
-mod context;
-
-use crate::config::TRAMPOLINE;
-use crate::syscall::syscall;
-use crate::task::{
-    check_signals_of_current, current_add_signal, current_trap_cx, current_trap_cx_user_va,
-    current_user_token, exit_current_and_run_next, suspend_current_and_run_next, SignalFlags,
-};
-use crate::timer::{check_timer, set_next_trigger};
 use core::arch::{asm, global_asm};
+
 use riscv::register::{
     mtvec::TrapMode,
     scause::{self, Exception, Interrupt, Trap},
     sie, stval, stvec,
 };
+
+pub use context::TrapContext;
+
+use crate::config::TRAMPOLINE;
+use crate::syscall::syscall;
+use crate::task::{
+    check_signals_of_current, current_add_signal, current_trap_cx,
+    current_trap_cx_user_va, current_user_token, exit_current_and_run_next,
+    suspend_current_and_run_next, SignalFlags,
+};
+
+use crate::timer::{check_timer, set_next_trigger};
+
+mod context;
 
 global_asm!(include_str!("trap.S"));
 
@@ -69,8 +75,9 @@ pub fn trap_handler() -> ! {
             // jump to next instruction anyway
             let mut cx = current_trap_cx();
             cx.sepc += 4;
+            let syscall_id = cx.x[17];
             // get system call return value
-            let result = syscall(cx.x[17], [cx.x[10], cx.x[11], cx.x[12], cx.x[13]]);
+            let result = syscall(syscall_id, [cx.x[10], cx.x[11], cx.x[12], cx.x[13]]);
             // cx is changed during sys_exec, so we have to call it again
             cx = current_trap_cx();
             cx.x[10] = result as usize;
@@ -145,5 +152,3 @@ pub fn trap_from_kernel() -> ! {
     trace!("stval = {:#x}, sepc = {:#x}", stval::read(), sepc::read());
     panic!("a trap {:?} from kernel!", scause::read().cause());
 }
-
-pub use context::TrapContext;

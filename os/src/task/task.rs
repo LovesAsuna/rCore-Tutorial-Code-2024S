@@ -1,11 +1,13 @@
 //! Types related to task management & Functions for completely changing TCB
 
-use super::id::TaskUserRes;
-use super::{kstack_alloc, KernelStack, ProcessControlBlock, TaskContext};
-use crate::trap::TrapContext;
-use crate::{mm::PhysPageNum, sync::UPSafeCell};
 use alloc::sync::{Arc, Weak};
 use core::cell::RefMut;
+
+use crate::{mm::PhysPageNum, sync::UPSafeCell};
+use crate::trap::TrapContext;
+
+use super::{KernelStack, kstack_alloc, ProcessControlBlock, TaskContext};
+use super::id::TaskUserRes;
 
 /// Task control block structure
 pub struct TaskControlBlock {
@@ -41,6 +43,8 @@ pub struct TaskControlBlockInner {
     pub task_status: TaskStatus,
     /// It is set when active exit or execution error occurs
     pub exit_code: Option<i32>,
+    /// start time of the task
+    pub start_time: usize,
 }
 
 impl TaskControlBlockInner {
@@ -75,6 +79,7 @@ impl TaskControlBlock {
                     task_cx: TaskContext::goto_trap_return(kstack_top),
                     task_status: TaskStatus::Ready,
                     exit_code: None,
+                    start_time: 0,
                 })
             },
         }
