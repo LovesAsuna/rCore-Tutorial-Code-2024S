@@ -49,6 +49,16 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// enable deadlock detection
+    pub deadlock_detection: bool,
+    /// deadlock detection support
+    pub deadlock_detection_support: UPSafeCell<ProcessDeadlockDetectionSupport>,
+}
+
+pub struct ProcessDeadlockDetectionSupport {
+    pub available: Vec<u32>,
+    pub allocation: Vec<Vec<u32>>,
+    pub need: Vec<Vec<u32>>
 }
 
 impl ProcessControlBlockInner {
@@ -119,6 +129,12 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detection: false,
+                    deadlock_detection_support: UPSafeCell::new(ProcessDeadlockDetectionSupport {
+                        available: Vec::new(),
+                        allocation: Vec::new(),
+                        need: Vec::new()
+                    }),
                 })
             },
         });
@@ -245,6 +261,12 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detection: false,
+                    deadlock_detection_support: UPSafeCell::new(ProcessDeadlockDetectionSupport {
+                        available: Vec::new(),
+                        allocation: Vec::new(),
+                        need: Vec::new()
+                    }),
                 })
             },
         });
